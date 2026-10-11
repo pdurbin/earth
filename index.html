@@ -41,6 +41,7 @@
       <option value="elevation" selected>Elevation</option>
       <option value="country">Country</option>
     </select>
+    <label><input type="checkbox" id="borders" checked> Borders</label>
     <label><input type="checkbox" id="cities" checked> Cities</label>
     <label><input type="checkbox" id="spin"> Auto-rotate</label>
   </div>
@@ -290,6 +291,10 @@
     document.getElementById('cities').addEventListener('change', e => {
       const v = e.target.checked ? 'visible' : 'none';
       map.setLayoutProperty('cities', 'visibility', v);
+    });
+
+    document.getElementById('borders').addEventListener('change', e => {
+      map.setLayoutProperty('borders', 'visibility', e.target.checked ? 'visible' : 'none');
     });
 
     // Ground distance covered by one screen pixel at the center of the map. On the
