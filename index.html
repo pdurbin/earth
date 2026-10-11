@@ -37,6 +37,10 @@
       <option value="globe" selected>Globe</option>
       <option value="mercator">Mercator</option>
     </select>
+    <select id="coloring" aria-label="Land color">
+      <option value="elevation" selected>Elevation</option>
+      <option value="country">Country</option>
+    </select>
     <label><input type="checkbox" id="cities" checked> Cities</label>
     <label><input type="checkbox" id="spin"> Auto-rotate</label>
   </div>
@@ -44,7 +48,8 @@
 
   <script>
     // Natural Earth's MAPCOLOR7 gives each country one of 7 colors so neighbors differ
-    // Earthy palette: muted greens, tans and clays at similar brightness
+    // Earthy palette for coloring by country: muted greens, tans and clays at similar
+    // brightness. Natural Earth's MAPCOLOR7 gives neighbors different numbers.
     const COUNTRY_COLOR = ['match', ['get', 'MAPCOLOR7'],
       1, '#8a9a6b', // sage
       2, '#b3a173', // khaki
@@ -54,6 +59,19 @@
       6, '#a3ad84', // moss
       7, '#a9826a', // clay
       '#999'];
+
+    // Land colored by elevation, like an atlas: green lowlands, tan uplands, brown
+    // mountains, pale highest peaks. LOWLAND is 0-200 m; each band covers its height and up.
+    const LOWLAND = '#9fb07f';
+    const ELEVATION_COLOR = ['step', ['get', 'elevation'], LOWLAND,
+      200,  '#b5bd88',
+      500,  '#cbc893',
+      1000, '#d6c08c',
+      1500, '#cdaa7c',
+      2000, '#bf9670',
+      3000, '#a98066',
+      4000, '#b9aaa0',
+      5000, '#e9e4dd'];
 
     // Which cities to show, by Natural Earth's scalerank (0 = most important).
     // Each tier is [apparent zoom, highest rank shown]; more cities appear as you zoom in.
@@ -117,6 +135,7 @@
 
     // Credit shown in the bottom-right attribution box (MapLibre lists it once even though several sources share it)
     const NE = 'Data: <a href="https://www.naturalearthdata.com/">Natural Earth</a>';
+    const ETOPO = '<a href="https://www.ncei.noaa.gov/products/etopo-global-relief-model">NOAA ETOPO 2022</a>';
 
     const map = new maplibregl.Map({
       container: 'map',
@@ -137,12 +156,14 @@
           'horizon-color': '#1b2a4a',
           'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 6, 0],
         },
-        light: { anchor: 'viewport', position: [1.5, 210, 40], intensity: 0.4 },
         sources: {
           countries: { type: 'geojson', data: 'data/ne_50m_admin_0_countries.geojson', attribution: NE },
           lakes:     { type: 'geojson', data: 'data/ne_50m_lakes.geojson', attribution: NE },
           rivers:    { type: 'geojson', data: 'data/ne_50m_rivers_lake_centerlines.geojson', attribution: NE },
           graticule: { type: 'geojson', data: graticule() },
+          // Land elevation bands traced from NOAA ETOPO 2022 (5 arc-minute grid). Each feature
+          // covers everywhere at least `elevation` meters high; its outline is that contour line.
+          elevation: { type: 'geojson', data: 'data/etopo_2022_elevation_bands.geojson', attribution: ETOPO },
           places:    { type: 'geojson', data: 'data/ne_10m_populated_places_simple.geojson', attribution: NE },
         },
         layers: [
@@ -150,21 +171,12 @@
           { id: 'graticule', type: 'line', source: 'graticule',
             paint: { 'line-color': '#24476b', 'line-width': 0.6 } },
           { id: 'land', type: 'fill', source: 'countries',
-            paint: { 'fill-color': '#1d2b3f' } },
-          { id: 'extrude', type: 'fill-extrusion', source: 'countries',
-            paint: {
-              'fill-extrusion-color': COUNTRY_COLOR,
-              'fill-extrusion-height': 60000, // uniform raised relief, in meters
-              'fill-extrusion-opacity': 0.92,
-            } },
-          // Lakes are raised to the same height as the countries (plus a bit), so they sit
-          // on top of the land instead of being buried under it
-          { id: 'lakes', type: 'fill-extrusion', source: 'lakes',
-            paint: {
-              'fill-extrusion-color': '#2f5f86',
-              'fill-extrusion-height': 60500,
-              'fill-extrusion-base': 60000,
-            } },
+            paint: { 'fill-color': LOWLAND } },
+          // Drawn low to high, so each spot ends up colored by its highest band
+          { id: 'elevation', type: 'fill', source: 'elevation',
+            layout: { 'fill-sort-key': ['get', 'elevation'] },
+            paint: { 'fill-color': ELEVATION_COLOR } },
+          { id: 'lakes', type: 'fill', source: 'lakes', paint: { 'fill-color': '#2f5f86' } },
           // Rivers: bigger rivers (lower scalerank) are wider, and all widen as you zoom in
           { id: 'rivers', type: 'line', source: 'rivers',
             layout: { 'line-join': 'round', 'line-cap': 'round' },
@@ -175,7 +187,17 @@
                 6, ['interpolate', ['linear'], ['get', 'scalerank'], 1, 3, 6, 1]],
             } },
           { id: 'borders', type: 'line', source: 'countries',
-            paint: { 'line-color': '#9fb3d1', 'line-width': 0.5, 'line-opacity': 0.5 } },
+            paint: { 'line-color': '#3b3026', 'line-width': 0.7, 'line-opacity': 0.6 } },
+          // Elevation contours. Zoomed out, only every 1,000 m; zoomed in, also 200, 500 and 1,500 m.
+          // The 1,000 m lines are drawn heavier so the big steps stand out.
+          { id: 'contours', type: 'line', source: 'elevation',
+            filter: ['step', ['zoom'], ['==', ['%', ['get', 'elevation'], 1000], 0], 3, true],
+            layout: { 'line-join': 'round' },
+            paint: {
+              'line-color': '#4a3a28',
+              'line-opacity': 0.3,
+              'line-width': ['case', ['==', ['%', ['get', 'elevation'], 1000], 0], 0.9, 0.4],
+            } },
           // Dot and name are one symbol, so they always appear or hide together.
           // When labels would collide, the name tries other sides of the dot first;
           // if there's still no room, the less important city (higher scalerank) is hidden.
@@ -253,6 +275,13 @@
     }, true);
     window.addEventListener('blur', () => held.clear());
 
+    // Color by elevation (bands over a lowland base) or by country (bands hidden)
+    document.getElementById('coloring').addEventListener('change', e => {
+      const byCountry = e.target.value === 'country';
+      map.setPaintProperty('land', 'fill-color', byCountry ? COUNTRY_COLOR : LOWLAND);
+      map.setLayoutProperty('elevation', 'visibility', byCountry ? 'none' : 'visible');
+    });
+
     document.getElementById('projection').addEventListener('change', e => {
       map.setProjection({ type: e.target.value });
       updateCityTier();
@@ -290,7 +319,7 @@
 
     // Hover popup
     const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
-    map.on('mousemove', 'extrude', e => {
+    map.on('mousemove', 'land', e => {
       const p = e.features[0].properties;
       map.getCanvas().style.cursor = 'pointer';
       popup.setLngLat(e.lngLat).setHTML(
@@ -298,7 +327,7 @@
         `<span style="color:#666">${p.CONTINENT}</span>`
       ).addTo(map);
     });
-    map.on('mouseleave', 'extrude', () => {
+    map.on('mouseleave', 'land', () => {
       map.getCanvas().style.cursor = '';
       popup.remove();
     });
