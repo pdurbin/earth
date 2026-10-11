@@ -44,9 +44,16 @@
 
   <script>
     // Natural Earth's MAPCOLOR7 gives each country one of 7 colors so neighbors differ
+    // Earthy palette: muted greens, tans and clays at similar brightness
     const COUNTRY_COLOR = ['match', ['get', 'MAPCOLOR7'],
-      1, '#3f6fa6', 2, '#4fb3a9', 3, '#f2c14e', 4, '#f25c54',
-      5, '#8e6fc1', 6, '#6fbf5f', 7, '#e38b3d', '#888'];
+      1, '#8a9a6b', // sage
+      2, '#b3a173', // khaki
+      3, '#6f8257', // olive
+      4, '#bfa283', // tan
+      5, '#97866a', // taupe
+      6, '#a3ad84', // moss
+      7, '#a9826a', // clay
+      '#999'];
 
     // Grid lines every 10°, built in code instead of loaded from a file.
     // Points every 1° so the lines curve smoothly around the globe.
