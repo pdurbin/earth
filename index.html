@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Earth</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css">
+  <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+  <style>
+    html, body { margin: 0; height: 100%; background: #05070d; font-family: system-ui, sans-serif; }
+    #map { position: absolute; inset: 0; }
+    #panel {
+      position: absolute; top: 12px; left: 12px; z-index: 1;
+      background: rgba(12, 16, 28, 0.85); color: #e6e9f2;
+      padding: 12px 14px; border-radius: 8px; font-size: 13px;
+      max-width: calc(100vw - 56px); box-sizing: border-box;
+    }
+    #panel h1 { font-size: 15px; margin: 0 0 8px; }
+    #panel label { display: block; margin: 4px 0; cursor: pointer; }
+    #panel select { width: 100%; margin-bottom: 6px; }
+    #panel small { color: #8c93a8; display: block; margin-top: 8px; }
+    .maplibregl-popup-content { font-size: 13px; }
+    #coords {
+      position: absolute; bottom: 12px; left: 12px; z-index: 1;
+      background: rgba(12, 16, 28, 0.85); color: #e6e9f2;
+      padding: 6px 10px; border-radius: 6px;
+      font: 12px ui-monospace, Menlo, monospace; white-space: pre;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="panel">
+    <h1>Earth</h1>
+    <select id="projection" aria-label="Projection">
+      <option value="globe" selected>Globe</option>
+      <option value="mercator">Mercator</option>
+    </select>
+    <label><input type="checkbox" id="cities" checked> Cities</label>
+    <label><input type="checkbox" id="spin"> Auto-rotate</label>
+    <small>Data: Natural Earth 1:110m</small>
+  </div>
+  <div id="coords"></div>
+
+  <script>
+    // Natural Earth's MAPCOLOR7 gives each country one of 7 colors so neighbors differ
+    const COUNTRY_COLOR = ['match', ['get', 'MAPCOLOR7'],
+      1, '#3f6fa6', 2, '#4fb3a9', 3, '#f2c14e', 4, '#f25c54',
+      5, '#8e6fc1', 6, '#6fbf5f', 7, '#e38b3d', '#888'];
+
+    // Grid lines every 10°, built in code instead of loaded from a file.
+    // Points every 1° so the lines curve smoothly around the globe.
+    function graticule(step = 10) {
+      const lines = [];
+      for (let lat = -80; lat <= 80; lat += step) {          // lines of latitude
+        const coords = [];
+        for (let lng = -180; lng <= 180; lng += 1) coords.push([lng, lat]);
+        lines.push(coords);
+      }
+      for (let lng = -180; lng < 180; lng += step) {         // lines of longitude
+        const coords = [];
+        for (let lat = -90; lat <= 90; lat += 1) coords.push([lng, lat]);
+        lines.push(coords);
+      }
+      return {
+        type: 'FeatureCollection',
+        features: lines.map(coordinates => ({
+          type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates },
+        })),
+      };
+    }
+
+    // Zoom so the whole globe fits the window (globe diameter ≈ 512·2^zoom / π px)
+    const fitZoom = Math.log2(0.75 * Math.min(innerWidth, innerHeight) * Math.PI / 512);
+
+    const map = new maplibregl.Map({
+      container: 'map',
+      center: [-40, 30],
+      zoom: fitZoom,
+      pitch: 0,
+      maxPitch: 75,
+      style: {
+        version: 8,
+        projection: { type: 'globe' },
+        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+        sky: {
+          'sky-color': '#05070d',
+          'horizon-color': '#1b2a4a',
+          'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 6, 0],
+        },
+        light: { anchor: 'viewport', position: [1.5, 210, 40], intensity: 0.4 },
+        sources: {
+          countries: { type: 'geojson', data: 'data/ne_110m_admin_0_countries.geojson', promoteId: 'ISO_A3' },
+          lakes:     { type: 'geojson', data: 'data/ne_110m_lakes.geojson' },
+          graticule: { type: 'geojson', data: graticule() },
+          places:    { type: 'geojson', data: 'data/ne_110m_populated_places_simple.geojson' },
+        },
+        layers: [
+          { id: 'ocean', type: 'background', paint: { 'background-color': '#0d2236' } },
+          { id: 'graticule', type: 'line', source: 'graticule',
+            paint: { 'line-color': '#24476b', 'line-width': 0.6 } },
+          { id: 'land', type: 'fill', source: 'countries',
+            paint: { 'fill-color': '#1d2b3f' } },
+          { id: 'lakes', type: 'fill', source: 'lakes', paint: { 'fill-color': '#0d2236' } },
+          { id: 'extrude', type: 'fill-extrusion', source: 'countries',
+            paint: {
+              'fill-extrusion-color': COUNTRY_COLOR,
+              'fill-extrusion-height': 60000, // uniform raised relief, in meters
+              'fill-extrusion-opacity': 0.92,
+            } },
+          { id: 'borders', type: 'line', source: 'countries',
+            paint: { 'line-color': '#9fb3d1', 'line-width': 0.5, 'line-opacity': 0.5 } },
+          { id: 'cities', type: 'circle', source: 'places',
+            filter: ['<=', ['get', 'scalerank'], 3],
+            paint: {
+              'circle-radius': ['interpolate', ['linear'], ['zoom'], 1, 1.5, 5, 4],
+              'circle-color': '#ffffff', 'circle-stroke-color': '#000', 'circle-stroke-width': 0.5,
+            } },
+          { id: 'city-labels', type: 'symbol', source: 'places',
+            filter: ['<=', ['get', 'scalerank'], 1],
+            layout: {
+              'text-field': ['get', 'name'],
+              'text-font': ['Open Sans Semibold'],
+              'text-size': 11,
+              'text-offset': [0, 0.9],
+              'text-anchor': 'top',
+            },
+            paint: { 'text-color': '#fff', 'text-halo-color': '#000', 'text-halo-width': 1.2 } },
+        ],
+      },
+    });
+
+    // Keep the canvas sized to its container (e.g. if the page loads hidden)
+    new ResizeObserver(() => map.resize()).observe(document.getElementById('map'));
+
+    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+
+    // Arrow-key panning. MapLibre's built-in handler pins the zoom number, which on the
+    // globe makes the planet grow as you drift toward the poles. Without a zoom, easeTo
+    // keeps the planet the same size on screen, like dragging with the mouse does.
+    // Held keys are tracked so two at once (e.g. left + up) pan diagonally.
+    // Shift + arrows (rotate and tilt) still go to MapLibre.
+    const PAN_SPEED = 400; // pixels per second
+    const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    const held = new Set();
+    let lastFrame = null, running = false;
+
+    function panFrame(now) {
+      if (!held.size) { lastFrame = null; running = false; return; }
+      const dt = lastFrame === null ? 1 / 60 : Math.min((now - lastFrame) / 1000, 0.1);
+      lastFrame = now;
+      let dx = 0, dy = 0;
+      for (const k of held) { dx += ARROWS[k][0]; dy += ARROWS[k][1]; }
+      const len = Math.hypot(dx, dy);
+      if (len) {
+        const step = PAN_SPEED * dt / len; // same speed on diagonals
+        map.easeTo({ center: map.getCenter(), offset: [-dx * step, -dy * step], duration: 0 });
+      }
+      requestAnimationFrame(panFrame);
+    }
+
+    const mapEl = document.getElementById('map');
+    mapEl.addEventListener('keydown', e => {
+      if (!ARROWS[e.key] || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+      e.preventDefault();
+      e.stopPropagation(); // capture phase, so MapLibre never sees it
+      held.add(e.key);
+      if (!running) { running = true; requestAnimationFrame(panFrame); }
+    }, true);
+    mapEl.addEventListener('keyup', e => {
+      if (ARROWS[e.key]) held.delete(e.key);
+    }, true);
+    window.addEventListener('blur', () => held.clear());
+
+    document.getElementById('projection').addEventListener('change', e => {
+      map.setProjection({ type: e.target.value });
+    });
+
+    document.getElementById('cities').addEventListener('change', e => {
+      const v = e.target.checked ? 'visible' : 'none';
+      map.setLayoutProperty('cities', 'visibility', v);
+      map.setLayoutProperty('city-labels', 'visibility', v);
+    });
+
+    // Ground distance covered by one screen pixel at the center of the map. On the
+    // globe this changes with latitude even when zoom doesn't.
+    function kmPerPixel() {
+      const p = map.project(map.getCenter());
+      const a = map.unproject([p.x - 5, p.y]);
+      const b = map.unproject([p.x + 5, p.y]);
+      return a.distanceTo(b) / 10 / 1000;
+    }
+
+    // Show the camera: center as [longitude, latitude], zoom, rotation, tilt and scale
+    const coords = document.getElementById('coords');
+    function showCenter() {
+      const c = map.getCenter().wrap();
+      coords.textContent =
+        `center:  [${c.lng.toFixed(2)}, ${c.lat.toFixed(2)}]\n` +
+        `zoom:    ${map.getZoom().toFixed(2)}\n` +
+        `bearing: ${map.getBearing().toFixed(1)}°\n` +
+        `pitch:   ${map.getPitch().toFixed(1)}°\n` +
+        `scale:   1 px = ${kmPerPixel().toPrecision(3)} km`;
+    }
+    map.on('move', showCenter);
+    showCenter();
+
+    // Hover popup
+    const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
+    map.on('mousemove', 'extrude', e => {
+      const p = e.features[0].properties;
+      map.getCanvas().style.cursor = 'pointer';
+      popup.setLngLat(e.lngLat).setHTML(
+        `<strong>${p.NAME}</strong><br>` +
+        `<span style="color:#666">${p.CONTINENT}</span>`
+      ).addTo(map);
+    });
+    map.on('mouseleave', 'extrude', () => {
+      map.getCanvas().style.cursor = '';
+      popup.remove();
+    });
+
+    // Auto-rotate, paused while the user interacts. Besides spinning east, the view
+    // drifts north and south between ±MAX_LAT, so over a few turns every part of the
+    // globe comes around, Arctic and Antarctica included.
+    const spin = document.getElementById('spin');
+    const LNG_STEP = 6;    // degrees per second: one turn per minute
+    const LAT_STEP = 1.75; // degrees per second: one north-south cycle per ~2.5 turns
+    const MAX_LAT = 65;    // centered here, the pole itself is in view
+    let latDir = -1;       // start by heading south
+    let interacting = false;
+    function rotate() {
+      if (spin.checked && !interacting && !held.size && map.getZoom() < 4) {
+        const c = map.getCenter();
+        if (c.lat >= MAX_LAT) latDir = -1;
+        if (c.lat <= -MAX_LAT) latDir = 1;
+        map.easeTo({ center: [c.lng + LNG_STEP, c.lat + latDir * LAT_STEP], duration: 1000, easing: t => t });
+      }
+    }
+    map.on('mousedown', () => { interacting = true; });
+    map.on('touchstart', () => { interacting = true; });
+    map.on('mouseup', () => { interacting = false; rotate(); });
+    map.on('touchend', () => { interacting = false; rotate(); });
+    map.on('moveend', rotate);
+    spin.addEventListener('change', rotate);
+    map.on('load', rotate);
+  </script>
+</body>
+</html>
