@@ -140,15 +140,27 @@
         light: { anchor: 'viewport', position: [1.5, 210, 40], intensity: 0.4 },
         sources: {
           countries: { type: 'geojson', data: 'data/ne_50m_admin_0_countries.geojson', attribution: NE },
+          // Natural Earth 1:10m bathymetry (200 to 10,000 m), simplified to ~9 km
+          bathymetry: { type: 'geojson', data: 'data/ne_10m_bathymetry.geojson', attribution: NE },
           lakes:     { type: 'geojson', data: 'data/ne_50m_lakes.geojson', attribution: NE },
           rivers:    { type: 'geojson', data: 'data/ne_50m_rivers_lake_centerlines.geojson', attribution: NE },
           graticule: { type: 'geojson', data: graticule() },
           places:    { type: 'geojson', data: 'data/ne_10m_populated_places_simple.geojson', attribution: NE },
         },
         layers: [
-          { id: 'ocean', type: 'background', paint: { 'background-color': '#0d2236' } },
+          // Shallow water (0-200 m, the continental shelves); deeper bands are drawn over it
+          { id: 'ocean', type: 'background', paint: { 'background-color': '#3d6f94' } },
+          // Ocean depth bands: each band covers everywhere at least that deep,
+          // so drawing shallow to deep leaves each spot colored by its depth
+          { id: 'bathymetry', type: 'fill', source: 'bathymetry',
+            layout: { 'fill-sort-key': ['get', 'depth'] },
+            paint: {
+              'fill-color': ['interpolate', ['linear'], ['get', 'depth'],
+                200, '#336285', 1000, '#2b5677', 2000, '#244b69', 3000, '#1f415d',
+                4000, '#1a3852', 5000, '#152f46', 6000, '#10263a', 10000, '#0a1a2a'],
+            } },
           { id: 'graticule', type: 'line', source: 'graticule',
-            paint: { 'line-color': '#24476b', 'line-width': 0.6 } },
+            paint: { 'line-color': 'rgba(255, 255, 255, 0.12)', 'line-width': 0.6 } },
           { id: 'land', type: 'fill', source: 'countries',
             paint: { 'fill-color': '#1d2b3f' } },
           { id: 'extrude', type: 'fill-extrusion', source: 'countries',
