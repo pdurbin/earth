@@ -56,16 +56,39 @@
       '#999'];
 
     // Which cities to show, by Natural Earth's scalerank (0 = most important).
-    // Dots and labels share this filter, so every dot has a name. More appear as you zoom in.
-    const CITY_FILTER = ['step', ['zoom'],
-      ['<=', ['get', 'scalerank'], 1],    // zoomed out: major cities only
-      2.5, ['<=', ['get', 'scalerank'], 2], // e.g. Boston, Seattle, Dallas
-      3.5, ['<=', ['get', 'scalerank'], 3],
-      4.5, ['<=', ['get', 'scalerank'], 4],
-      5.5, ['<=', ['get', 'scalerank'], 6], // e.g. Columbus, Ohio
-      6.5, ['<=', ['get', 'scalerank'], 7],
-      7.5, ['<=', ['get', 'scalerank'], 8],
-      8.5, true];                         // zoomed in: all cities
+    // Each tier is [apparent zoom, highest rank shown]; more cities appear as you zoom in.
+    const CITY_TIERS = [
+      [0,   1],         // zoomed out: major cities only
+      [2.5, 2],         // e.g. Boston, Seattle, Dallas
+      [3.5, 3],
+      [4.5, 4],
+      [5.5, 6],         // e.g. Columbus, Ohio
+      [6.5, 7],
+      [7.5, 8],
+      [8.5, Infinity],  // zoomed in: all cities
+    ];
+
+    // The tiers use "apparent zoom" (how big the planet looks), not MapLibre's zoom number.
+    // On the globe, MapLibre lowers the zoom number toward the poles to keep the planet the
+    // same size, so tiers based on it would drop cities just from panning north or south.
+    // (A ['zoom'] filter would also only change at whole zoom levels.)
+    function apparentZoom() {
+      if (map.getProjection()?.type === 'mercator') return map.getZoom();
+      const lat = Math.min(85, Math.abs(map.getCenter().lat));
+      return map.getZoom() - Math.log2(Math.cos(lat * Math.PI / 180));
+    }
+
+    // Dots and labels are one layer, so every dot has a name
+    const cityFilter = maxRank => ['<=', ['get', 'scalerank'], maxRank === Infinity ? 99 : maxRank];
+    let shownMaxRank = 1;
+    function updateCityTier() {
+      const z = apparentZoom();
+      const maxRank = CITY_TIERS.filter(([minZoom]) => z >= minZoom).at(-1)[1];
+      if (maxRank !== shownMaxRank) {
+        shownMaxRank = maxRank;
+        map.setFilter('cities', cityFilter(maxRank));
+      }
+    }
 
     // Grid lines every 10°, built in code instead of loaded from a file.
     // Points every 1° so the lines curve smoothly around the globe.
@@ -140,7 +163,7 @@
           // When labels would collide, the name tries other sides of the dot first;
           // if there's still no room, the less important city (higher scalerank) is hidden.
           { id: 'cities', type: 'symbol', source: 'places',
-            filter: CITY_FILTER,
+            filter: cityFilter(shownMaxRank),
             layout: {
               'symbol-sort-key': ['get', 'scalerank'],
               'icon-image': 'city-dot',
@@ -215,6 +238,7 @@
 
     document.getElementById('projection').addEventListener('change', e => {
       map.setProjection({ type: e.target.value });
+      updateCityTier();
     });
 
     document.getElementById('cities').addEventListener('change', e => {
@@ -243,6 +267,8 @@
         `scale:   1 px = ${kmPerPixel().toPrecision(3)} km`;
     }
     map.on('move', showCenter);
+    map.on('move', updateCityTier);
+    map.on('load', updateCityTier);
     showCenter();
 
     // Hover popup
